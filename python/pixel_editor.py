@@ -1,15 +1,11 @@
 #!/usr/bin/python3
-# -*- coding: utf-8 -*-
 
 import sys
 from PyQt5.QtWidgets import QApplication, QMainWindow, QAction, qApp, QWidget, QPushButton,\
-    QLabel, QSpinBox, QGridLayout, QVBoxLayout, QSplitter, QTableView, QFileDialog
-from PyQt5.QtGui import QKeySequence, QColor, QImage
-from PyQt5.QtCore import QDir, Qt
+    QLabel, QSpinBox, QGridLayout, QVBoxLayout, QSplitter, QTableView, QFileDialog, QScrollArea, QAbstractScrollArea
+from PyQt5.QtGui import QKeySequence, QColor, QImage, QPixmap
+from PyQt5.QtCore import QDir, Qt, QAbstractTableModel, QVariant
 from functools import partial
-
-
-from picture_model import PictureModel
 
 
 class MainWindow(QMainWindow):
@@ -56,10 +52,12 @@ class MainWindow(QMainWindow):
         label_x.setText('x Size')
         self.spinbox_x = QSpinBox(size)
         self.spinbox_x.setMaximum(1000000)
+        self.spinbox_x.setValue(100)
         label_y = QLabel(size)
         label_y.setText('y Size')
         self.spinbox_y = QSpinBox(size)
         self.spinbox_y.setMaximum(1000000)
+        self.spinbox_y.setValue(100)
         apply_button = QPushButton("Apply", size)
         size_layout.addWidget(label_x, 0, 0)
         size_layout.addWidget(self.spinbox_x, 0, 1)
@@ -72,11 +70,20 @@ class MainWindow(QMainWindow):
         empty_button = QPushButton("Set to emtpy", left)
         fluid_button = QPushButton("Set to fluid", left)
         obstacle_button = QPushButton("Set to obstacle", left)
+        # Picutre
+        self.picture_label = QLabel(self)
+        self.picture_label.setPixmap(QPixmap.fromImage(self.model.image))
+        self.picture_label.setAlignment(Qt.AlignCenter)
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidget(self.picture_label)
+        scroll_area.setAlignment(Qt.AlignCenter)
+        scroll_area.setSizeAdjustPolicy(QAbstractScrollArea.AdjustToContents)
+        # Layout
         left_layout.addWidget(size)
         left_layout.addWidget(empty_button)
         left_layout.addWidget(fluid_button)
         left_layout.addWidget(obstacle_button)
-        left_layout.addStretch()
+        left_layout.addWidget(scroll_area)
 
         # Table
         self.table_view = QTableView()
@@ -89,9 +96,13 @@ class MainWindow(QMainWindow):
 
         # Connect signals
         empty_button.clicked.connect(partial(self.colorize_image, QColor(Qt.white)))
+        empty_button.clicked.connect(self.show_image)
         fluid_button.clicked.connect(partial(self.colorize_image, QColor(Qt.blue)))
+        fluid_button.clicked.connect(self.show_image)
         obstacle_button.clicked.connect(partial(self.colorize_image, QColor(Qt.black)))
+        obstacle_button.clicked.connect(self.show_image)
         apply_button.clicked.connect(self.resize)
+        apply_button.clicked.connect(self.show_image)
 
         # Set window
         self.setCentralWidget(splitter)
@@ -101,6 +112,8 @@ class MainWindow(QMainWindow):
     def new_file(self):
         self.model.image = QImage(self.spinbox_x.value(), self.spinbox_y.value(), QImage.Format_RGB32)
         self.model.image.fill(Qt.blue)
+        self.show_image()
+        self.save_as_action.setEnabled(True)
 
     def open_file(self):
         file_name = QFileDialog.getOpenFileName(self, 'Open picture', self.current_path, "Images (*.png)")
@@ -111,6 +124,7 @@ class MainWindow(QMainWindow):
                 self.current_path = file_name[0].rpartition('/')[0]
                 self.save_action.setEnabled(True)
                 self.save_as_action.setEnabled(True)
+                self.show_image()
 
     def save_file(self):
         if self.model.file:
@@ -130,9 +144,59 @@ class MainWindow(QMainWindow):
             self.model.dataChanged.emit(index, index)
 
     def resize(self):
-        if self.model.image is None:
+        if self.model.image.isNull():
             self.new_file()
         self.model.image = self.model.image.scaled(self.spinbox_x.value(), self.spinbox_y.value())
+
+    def show_image(self):
+        self.picture_label.setPixmap(QPixmap.fromImage(self.model.image))
+        self.picture_label.resize(self.picture_label.pixmap().size())
+
+
+class PictureModel(QAbstractTableModel):
+    def __init__(self, parent, file=""):
+        super().__init__(parent)
+        if not file:
+            self._image = QImage()
+        else:
+            self._image = QImage(file)
+        self.file = file
+
+    def rowCount(self, parent):
+        if self.image.isNull():
+            return 0
+        return self.image.height()
+
+    def columnCount(self, parent):
+        if self.image.isNull():
+            return 0
+        return self.image.width()
+
+    def data(self, index, role):
+        if role == Qt.BackgroundRole:
+            rgb = self.image.pixel(index.column(), index.row())
+            return QColor(rgb)
+        return QVariant()
+
+    def open_image(self, file_name):
+        self.image.load(file_name)
+        self.layoutChanged.emit()
+        return True
+
+    def save_image(self, file_name):
+        if file_name is not None:
+            self.file = file_name
+        self.image.save(self.file)
+
+    @property
+    def image(self):
+        return self._image
+
+    @image.setter
+    def image(self, value):
+        self._image = value
+        self.layoutChanged.emit()
+
 
 if __name__ == '__main__':
 
